@@ -2,11 +2,20 @@
 
 """TECO for Python
 
-Copyright (C) 2006, 2014 by Paul Koning
+Copyright (C) 2006-2021 by Paul Koning
 
 This is an implementation of DEC Standard TECO in Python.
 It corresponds to PDP-11/VAX TECO V40, give or take a few details
 that don't really carry over.
+
+Environment variables:
+    TECO_PATH -- where EI looks for files
+    GT40_POINTSIZE -- display point size, defaults to 12
+    GT40_WIDTH -- display width, defaults to 80
+    GT40_HEIGHT -- display height, defaults to 24
+    GT40_COLOR -- either foreground or foreground,background
+        Both are 6 digit hex values, BBGGRR color values.
+        Default foreground is green, background is black.
 """
 
 import os
@@ -20,6 +29,7 @@ import copy
 import atexit
 import threading
 import tempfile
+import errno
 
 try:
     import curses
@@ -811,8 +821,25 @@ def enddisplay ():
         display.stop ()
             
 if wxpresent:
-    pointsize = 12
-
+    # Display parameters can be customized but have defaults
+    pointsize = int (os.environ.get ("GT40_POINTSIZE", 12))
+    width = int (os.environ.get ("GT40_WIDTH", 80))
+    height = int (os.environ.get ("GT40_HEIGHT", 24))
+    fgcolor = os.environ.get ("GT40_COLOR", None)
+    bgcolor = None
+    if fgcolor:
+        fgcolor, *bgcolor = fgcolor.split (",")
+        if fgcolor.startswith ("#"):
+            fgcolor = fgcolor[1:]
+        fgcolor = int (fgcolor, 16)
+        if bgcolor:
+            bgcolor = bgcolor[0]
+            if bgcolor.startswith ("#"):
+                bgcolor = bgcolor[1:]
+            bgcolor = int (bgcolor, 16)
+        else:
+            bgcolor = None
+            
     class displayApp ():
         """This class wraps the App main loop for wxPython.
 
@@ -844,13 +871,28 @@ if wxpresent:
             self.font = wx.Font (pointsize, wx.FONTFAMILY_MODERN,
                                  wx.FONTSTYLE_NORMAL,
                                  wx.FONTWEIGHT_NORMAL)
+            if bgcolor is None:
+                # Traditional GT40 look
+                self.bgpen = wx.BLACK_PEN
+                self.bg = wx.BLACK
+            else:
+                # Get the specified color
+                self.bg = wx.Colour (bgcolor)
+                self.bgpen = wx.Pen (self.bg)
+            if fgcolor is None:
+                self.fgpen = wx.GREEN_PEN
+                self.fg = wx.GREEN
+            else:
+                # Get the specified color
+                self.fg = wx.Colour (fgcolor)
+                self.fgpen = wx.Pen (self.fg)
             dc = wx.MemoryDC ()
             dc.SetFont (self.font)
             self.fontextent = dc.GetTextExtent ("a")
             cw, ch = self.fontextent
             self.margin = cw
-            cw = cw * 80 + self.margin * 2
-            ch = ch * 24 + self.margin * 2
+            cw = cw * width + self.margin * 2
+            ch = ch * height + self.margin * 2
             self.frame = displayframe (self, wx.ID_ANY, "TECO display",
                                        wx.Size (cw, ch))
             self.frame.Show (True)
@@ -905,7 +947,7 @@ if wxpresent:
             self.timer.Start (500)
             self.cursorState = True
             self.doRefresh = False
-            self.SetBackgroundColour (wx.WHITE)
+            self.SetBackgroundColour (self.display.bg)
             
         def OnIdle (self, event = None):
             """Used to make a refresh happen, if one has been requested.
@@ -928,9 +970,9 @@ if wxpresent:
             if x is not None:
                 cw, ch = self.display.fontextent
                 if self.cursorState:
-                    pen = wx.BLACK_PEN
+                    pen = self.display.fgpen
                 else:
-                    pen = wx.WHITE_PEN
+                    pen = self.display.bgpen
                 self.cursorState = not self.cursorState
                 dc = wx.ClientDC (self)
                 dc.SetPen (pen)
@@ -968,7 +1010,8 @@ if wxpresent:
                               (currow + 1) * ch + self.display.margin, \
                               False
             wrap = False
-            dc.SetPen (wx.BLACK_PEN)
+            dc.SetPen (self.display.fgpen)
+            dc.SetTextForeground (self.display.fg)
             for row, line in enumerate (lines):
                 y = self.display.margin + row * ch
                 if wrap:
@@ -2917,7 +2960,7 @@ class inputstream (object):
         except IOError as err:
             if colon:
                 return 0
-            if err.errno == 2:
+            if err.errno == errno.ENOENT:
                 raise FNF (self.teco, fn)
             else:
                 raise FER (self.teco)
@@ -3195,7 +3238,6 @@ class command_handler (object):
                 self.eifile.close ()
             f = None
             if not os.path.dirname (fn):
-                fn
                 for d in (os.environ.get("TECO_PATH",None) or
                           os.environ.get("PATH",None) or
                           os.defpath).split(os.pathsep):
@@ -3205,7 +3247,7 @@ class command_handler (object):
                                   errors = "ignore")
                         break
                     except IOError as err:
-                        if err.errno == 2:
+                        if err.errno == errno.ENOENT:
                             pass
                         else:
                             raise FER (self.teco)
@@ -3214,7 +3256,7 @@ class command_handler (object):
                     f = open (fn, "r", encoding = "utf8", errors = "ignore")
                     realfn = fn
                 except IOError as err:
-                    if err.errno == 2:
+                    if err.errno == errno.ENOENT:
                         pass
                     else:
                         raise FER (self.teco)
