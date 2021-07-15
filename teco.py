@@ -14,7 +14,10 @@ Environment variables:
     GT40_WIDTH -- display width, defaults to 80
     GT40_HEIGHT -- display height, defaults to 24
     GT40_COLOR -- either foreground or foreground,background
-        Both are 6 digit hex values, BBGGRR color values.
+        Both are either a color name or #rrggbb hex values.
+        The color names are the wx standard ones, which roughly
+        match the X standard names.  _ may be used instead of
+        space in color names, e.g., "slate_blue".
         Default foreground is green, background is black.
 """
 
@@ -722,14 +725,14 @@ class teco (object):
             # Release the main thread, allowing it to start the display
             dsem.release ()
         else:
-            self.updatedisplay ()
+            display.show ()
 
     def updatedisplay (self):
         """Refresh the GT40 style display to reflect the current
         buffer state around dot.
         """
         if display:
-            display.show ()
+            display.show (display.frame.doShow)
             
     def hidedisplay (self):
         """Turn off (hide) the GT40 display.
@@ -829,16 +832,6 @@ if wxpresent:
     bgcolor = None
     if fgcolor:
         fgcolor, *bgcolor = fgcolor.split (",")
-        if fgcolor.startswith ("#"):
-            fgcolor = fgcolor[1:]
-        fgcolor = int (fgcolor, 16)
-        if bgcolor:
-            bgcolor = bgcolor[0]
-            if bgcolor.startswith ("#"):
-                bgcolor = bgcolor[1:]
-            bgcolor = int (bgcolor, 16)
-        else:
-            bgcolor = None
             
     class displayApp ():
         """This class wraps the App main loop for wxPython.
@@ -871,21 +864,29 @@ if wxpresent:
             self.font = wx.Font (pointsize, wx.FONTFAMILY_MODERN,
                                  wx.FONTSTYLE_NORMAL,
                                  wx.FONTWEIGHT_NORMAL)
-            if bgcolor is None:
+            # The error handling here is a bit ugly because we're too
+            # far from the command loop to make it cleaner.  Some
+            # restructuring might help, to be examined.
+            if bgcolor:
+                # Get the specified color
+                self.bg = wx.Colour (bgcolor[0].replace ("_", " "))
+                if not self.bg.IsOk ():
+                    print ("\r\nUnknown background color:", bgcolor, "\r\n")
+                    self.bg = wx.BLACK
+                self.bgpen = wx.Pen (self.bg)
+            else:
                 # Traditional GT40 look
                 self.bgpen = wx.BLACK_PEN
                 self.bg = wx.BLACK
+            if fgcolor:
+                self.fg = wx.Colour (fgcolor.replace ("_", " "))
+                if not self.fg.IsOk ():
+                    print ("\r\nUnknown foreground color:", fgcolor, "\r\n")
+                    self.fg = wx.GREEN
+                self.fgpen = wx.Pen (self.fg)
             else:
-                # Get the specified color
-                self.bg = wx.Colour (bgcolor)
-                self.bgpen = wx.Pen (self.bg)
-            if fgcolor is None:
                 self.fgpen = wx.GREEN_PEN
                 self.fg = wx.GREEN
-            else:
-                # Get the specified color
-                self.fg = wx.Colour (fgcolor)
-                self.fgpen = wx.Pen (self.fg)
             dc = wx.MemoryDC ()
             dc.SetFont (self.font)
             self.fontextent = dc.GetTextExtent ("a")
@@ -946,7 +947,8 @@ if wxpresent:
             self.timer = wx.Timer (self, timerId)
             self.timer.Start (500)
             self.cursorState = True
-            self.doRefresh = False
+            self.doRefresh = True
+            self.doShow = True
             self.SetBackgroundColour (self.display.bg)
             
         def OnIdle (self, event = None):
@@ -2305,13 +2307,15 @@ class command_level(metaclass=Anychar):
     def eg (self, c):
         """EG command -- OS dependent action.
 
-        Right now this does nothing.
+        This evaluates a Python expression and returns the result (if
+        colon-modified) or executes a Python statement (if not
+        modified).
         """
         cmd = self.strbuild (self.strarg (c))
-        colon = self.colon ()
-        # TODO: do something
-        if colon:
-            self.setval (0)
+        if self.colon ():
+            self.setval (eval (cmd))
+        else:
+            exec (cmd)
             
     def ei (self, c):
         """EI command -- read command input from a file.
