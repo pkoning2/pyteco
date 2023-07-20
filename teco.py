@@ -2,7 +2,7 @@
 
 """TECO for Python
 
-Copyright (C) 2006-2021 by Paul Koning
+Copyright (C) 2006-2023 by Paul Koning
 
 This is an implementation of DEC Standard TECO in Python.
 It corresponds to PDP-11/VAX TECO V40, give or take a few details
@@ -45,8 +45,10 @@ except ImportError:
     
 try:
     import wx
+    # Make sure it's real
+    wx.Frame
     wxpresent = True
-except ImportError:
+except (ImportError, AttributeError):
     wxpresent = False
     
 # char codes
@@ -1192,7 +1194,7 @@ _searchdict2 = { ctrle + "s" : "[ \t]+",
 _searchdict5 = { ctrle + "a" : "A-Za-z",
                  ctrle + "b" : "\\W",
                  ctrle + "c" : "\\w$_.",
-                 ctrle + "d" : "\d",
+                 ctrle + "d" : "\\d",
                  ctrle + "l" : eol,
                  ctrle + "r" : "\\w",
                  ctrle + "v" : "a-z",
